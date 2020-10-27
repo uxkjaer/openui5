@@ -151,6 +151,8 @@ sap.ui.define([
 	 *   Service in the backend.
 	 * @param {boolean} [mParameters.useBatch=true]
 	 *   Whether all requests should be sent in batch requests
+	 * @param {boolean} [mParameters.usePromise=false]
+	 *   Whether all requests should be returned as promises
 	 * @param {boolean} [mParameters.withCredentials]
 	 *   Experimental - <code>true</code> when user credentials are to be included in a cross-origin
 	 *   request; please note that this only works if all requests are asynchronous
@@ -187,6 +189,7 @@ sap.ui.define([
 				bWithCredentials,
 				sMaxDataServiceVersion,
 				bUseBatch,
+				bUsePromise,
 				bRefreshAfterChange,
 				sAnnotationURI,
 				bLoadAnnotationsJoined,
@@ -225,6 +228,7 @@ sap.ui.define([
 				bWithCredentials = mParameters.withCredentials;
 				sMaxDataServiceVersion = mParameters.maxDataServiceVersion;
 				bUseBatch = mParameters.useBatch;
+				bUsePromise = mParameters.usePromise;
 				bRefreshAfterChange = mParameters.refreshAfterChange;
 				sAnnotationURI = mParameters.annotationURI;
 				bLoadAnnotationsJoined = mParameters.loadAnnotationsJoined;
@@ -4649,6 +4653,7 @@ sap.ui.define([
 	 * @public
 	 */
 	ODataModel.prototype.update = function(sPath, oData, mParameters) {
+		var prom = new Promise((resolve, reject) => { 
 		var fnSuccess, fnError, oRequest, sUrl, oContext, sETag,
 			aUrlParams, sGroupId, sChangeSetId,
 			mUrlParams, mHeaders, sMethod, mRequests, bRefreshAfterChange,
@@ -4658,8 +4663,6 @@ sap.ui.define([
 			sGroupId = mParameters.groupId || mParameters.batchGroupId;
 			sChangeSetId = mParameters.changeSetId;
 			oContext  = mParameters.context;
-			fnSuccess = mParameters.success;
-			fnError   = mParameters.error;
 			sETag     = mParameters.eTag;
 			mHeaders  = mParameters.headers;
 			mUrlParams = mParameters.urlParameters;
@@ -4669,6 +4672,12 @@ sap.ui.define([
 			if (mParameters.merge !== undefined) {
 				sMethod =  mParameters.merge ? "MERGE" : "PUT";
 			}
+			fnSuccess = (mParameters.success) ? mParameters.success : (oData) => resolve(oData);
+				fnError = (mParameters.error) ? mParameters.error : (oData) => reject(oData);
+			} 
+		else {
+			fnSuccess = (oData) => resolve(oData);
+			fnError = (oError) => reject(oError);
 		}
 
 		bCanonical = this._isCanonicalRequestNeeded(bCanonical);
@@ -4696,6 +4705,8 @@ sap.ui.define([
 
 			return oRequest;
 		}, fnError, bDeferred);
+	});
+	return prom;
 
 	};
 
@@ -4728,57 +4739,66 @@ sap.ui.define([
 	 * @public
 	 */
 	ODataModel.prototype.create = function(sPath, oData, mParameters) {
-		var oRequest, sUrl, oEntityMetadata,
-		oContext, fnSuccess, fnError, mUrlParams, mRequests,
-		mHeaders, aUrlParams, sEtag, sGroupId, sMethod, sChangeSetId, bRefreshAfterChange,
-		bDeferred, that = this, sNormalizedPath, sDeepPath, bCanonical;
+		let prom = new Promise((resolve, reject) => {
+			var oRequest, sUrl, oEntityMetadata,
+			oContext, fnSuccess, fnError, mUrlParams, mRequests,
+			mHeaders, aUrlParams, sEtag, sGroupId, sMethod, sChangeSetId, bRefreshAfterChange,
+			bDeferred, that = this, sNormalizedPath, sDeepPath, bCanonical;
 
-		// The object parameter syntax has been used.
-		if (mParameters) {
-			oContext   = mParameters.context;
-			mUrlParams = mParameters.urlParameters;
-			fnSuccess  = mParameters.success;
-			fnError    = mParameters.error;
-			sGroupId	= mParameters.groupId || mParameters.batchGroupId;
-			sChangeSetId	= mParameters.changeSetId;
-			sEtag		= mParameters.eTag;
-			mHeaders	= mParameters.headers;
-			bRefreshAfterChange = mParameters.refreshAfterChange;
-			bCanonical = mParameters.canonicalRequest;
+			// The object parameter syntax has been used.
+			if (mParameters) {
+				oContext   = mParameters.context;
+				mUrlParams = mParameters.urlParameters;
+				
+				
+				sGroupId	= mParameters.groupId || mParameters.batchGroupId;
+				sChangeSetId	= mParameters.changeSetId;
+				sEtag		= mParameters.eTag;
+				mHeaders	= mParameters.headers;
+				bRefreshAfterChange = mParameters.refreshAfterChange;
+				bCanonical = mParameters.canonicalRequest;
+				fnSuccess = (mParameters.success) ? mParameters.success : (oData) => resolve(oData);
+				fnError = (mParameters.error) ? mParameters.error : (oData) => reject(oData);
+			} 
+		else {
+			fnSuccess = (oData) => resolve(oData);
+			fnError = (oError) => reject(oError);
 		}
 
-		bCanonical = this._isCanonicalRequestNeeded(bCanonical);
+			bCanonical = this._isCanonicalRequestNeeded(bCanonical);
 
-		bRefreshAfterChange = this._getRefreshAfterChange(bRefreshAfterChange, sGroupId);
+			bRefreshAfterChange = this._getRefreshAfterChange(bRefreshAfterChange, sGroupId);
 
-		aUrlParams = ODataUtils._createUrlParamsArray(mUrlParams);
-		mHeaders = this._getHeaders(mHeaders);
-		sMethod = "POST";
+			aUrlParams = ODataUtils._createUrlParamsArray(mUrlParams);
+			mHeaders = this._getHeaders(mHeaders);
+			sMethod = "POST";
 
-		bDeferred = sGroupId in that.mDeferredGroups;
+			bDeferred = sGroupId in that.mDeferredGroups;
 
-		sNormalizedPath = that._normalizePath(sPath, oContext, bCanonical);
-		sDeepPath = this.resolveDeep(sPath, oContext);
+			sNormalizedPath = that._normalizePath(sPath, oContext, bCanonical);
+			sDeepPath = this.resolveDeep(sPath, oContext);
 
-		return this._processRequest(function(requestHandle) {
-			sUrl = that._createRequestUrlWithNormalizedPath(sNormalizedPath, aUrlParams, that.bUseBatch);
-			oRequest = that._createRequest(sUrl, sDeepPath, sMethod, mHeaders, oData, sEtag);
-			oRequest.created = true;
+			return this._processRequest(function(requestHandle) {
+				sUrl = that._createRequestUrlWithNormalizedPath(sNormalizedPath, aUrlParams, that.bUseBatch);
+				oRequest = that._createRequest(sUrl, sDeepPath, sMethod, mHeaders, oData, sEtag);
+				oRequest.created = true;
 
-			oEntityMetadata = that.oMetadata._getEntityTypeByPath(sNormalizedPath);
-			oRequest.entityTypes = {};
-			if (oEntityMetadata) {
-				oRequest.entityTypes[oEntityMetadata.entityType] = true;
-			}
+				oEntityMetadata = that.oMetadata._getEntityTypeByPath(sNormalizedPath);
+				oRequest.entityTypes = {};
+				if (oEntityMetadata) {
+					oRequest.entityTypes[oEntityMetadata.entityType] = true;
+				}
 
-			mRequests = that.mRequests;
-			if (bDeferred) {
-				mRequests = that.mDeferredRequests;
-			}
-			that._pushToRequestQueue(mRequests, sGroupId, sChangeSetId, oRequest, fnSuccess, fnError, requestHandle, bRefreshAfterChange);
+				mRequests = that.mRequests;
+				if (bDeferred) {
+					mRequests = that.mDeferredRequests;
+				}
+				that._pushToRequestQueue(mRequests, sGroupId, sChangeSetId, oRequest, fnSuccess, fnError, requestHandle, bRefreshAfterChange);
 
-			return oRequest;
-		}, fnError, bDeferred);
+				return oRequest;
+			}, fnError, bDeferred);
+		});
+		return prom
 	};
 
 	/**
@@ -4806,6 +4826,7 @@ sap.ui.define([
 	 * @public
 	 */
 	ODataModel.prototype.remove = function(sPath, mParameters) {
+		var prom = new Promise((resolve, reject) => {
 		var oContext, sKey, fnSuccess, fnError, oRequest, sUrl, sGroupId,
 		sChangeSetId, sETag, bRefreshAfterChange,
 		mUrlParams, mHeaders, aUrlParams, sMethod, mRequests,
@@ -4815,14 +4836,18 @@ sap.ui.define([
 			sGroupId = mParameters.groupId || mParameters.batchGroupId;
 			sChangeSetId = mParameters.changeSetId;
 			oContext  = mParameters.context;
-			fnSuccess = mParameters.success;
-			fnError   = mParameters.error;
+			
 			sETag     = mParameters.eTag;
 			mHeaders  = mParameters.headers;
 			mUrlParams = mParameters.urlParameters;
 			bRefreshAfterChange = mParameters.refreshAfterChange;
-			bCanonical = mParameters.canonicalRequest;
-		}
+			bCanonical = mParameters.canonicalRequest;fnSuccess = (mParameters.success) ? mParameters.success : (oData) => resolve(oData);
+			fnError = (mParameters.error) ? mParameters.error : (oData) => reject(oData);
+		} 
+	else {
+		fnSuccess = (oData) => resolve(oData);
+		fnError = (oError) => reject(oError);
+	}
 
 		bCanonical = this._isCanonicalRequestNeeded(bCanonical);
 
@@ -4865,6 +4890,8 @@ sap.ui.define([
 
 			return oRequest;
 		}, fnError, bDeferred);
+	});
+	return prom;
 	};
 
 	/**
@@ -4970,6 +4997,7 @@ sap.ui.define([
 	 * @public
 	 */
 	ODataModel.prototype.callFunction = function (sFunctionName, mParameters) {
+		var prom = new Promise((resolve, reject) => {
 		var sChangeSetId, pContextCreated, fnError, sETag, sExpand, sGroupId, mHeaders, sMethod,
 			bRefreshAfterChange, fnReject, oRequestHandle, fnResolve, fnSuccess, mUrlParams,
 			that = this;
@@ -4982,15 +5010,17 @@ sap.ui.define([
 
 		mParameters = mParameters || {};
 		sChangeSetId = mParameters.changeSetId;
-		fnError = mParameters.error;
+		fnSuccess = (mParameters.error) ? mParameters.error : (oData) => resolve(oData);
 		sETag = mParameters.eTag;
 		sExpand = mParameters.expand;
 		sGroupId = mParameters.groupId || mParameters.batchGroupId;
 		mHeaders = mParameters.headers;
 		sMethod = mParameters.method || "GET";
 		bRefreshAfterChange = mParameters.refreshAfterChange;
-		fnSuccess = mParameters.success;
+		
 		mUrlParams = Object.assign({}, mParameters.urlParameters);
+		fnSuccess = (mParameters.success) ? mParameters.success : (oData) => resolve(oData);
+			
 
 		if (sExpand) {
 			if (!this.bUseBatch) {
@@ -5155,6 +5185,8 @@ sap.ui.define([
 		};
 
 		return oRequestHandle;
+	})
+	return prom;
 	};
 
 	ODataModel.prototype._createFunctionImportParameters = function(sFunctionName, sMethod, mParams) {
@@ -5209,6 +5241,7 @@ sap.ui.define([
 	 * @public
 	 */
 	ODataModel.prototype.read = function(sPath, mParameters) {
+		var prom = new Promise((resolve, reject) => {
 		var sDeepPath, oEntityType, sETag, oFilter, sFilterParams, sMethod, sNormalizedPath,
 			sNormalizedTempPath, oRequest, mRequests, sSorterParams, sUrl, aUrlParams,
 			bCanonical, oContext, fnError, aFilters, sGroupId, mHeaders, aSorters, fnSuccess,
@@ -5219,14 +5252,18 @@ sap.ui.define([
 		if (mParameters) {
 			bCanonical = mParameters.canonicalRequest;
 			oContext = mParameters.context;
-			fnError = mParameters.error;
+			fnError = (mParameters.error) ? mParameters.error : (oError) => reject(oError);;
 			aFilters = mParameters.filters;
 			sGroupId = mParameters.groupId || mParameters.batchGroupId;
 			mHeaders = mParameters.headers;
 			aSorters = mParameters.sorters;
-			fnSuccess = mParameters.success;
+			fnSuccess = (mParameters.success) ? mParameters.success : (oData) => resolve(oData);
 			bUpdateAggregatedMessages = mParameters.updateAggregatedMessages;
 			mUrlParams = mParameters.urlParameters;
+		}
+		else {
+			fnSuccess = (oData) => resolve(oData);
+			fnError = (oError) => reject(oError);;
 		}
 		bCanonical = this._isCanonicalRequestNeeded(bCanonical);
 
@@ -5285,19 +5322,26 @@ sap.ui.define([
 			if (sGroupId in that.mDeferredGroups) {
 				mRequests = that.mDeferredRequests;
 			}
-			that._pushToRequestQueue(mRequests, sGroupId, null, oRequest, fnSuccess, fnError, requestHandle, false);
 
-			return oRequest;
+		
+			
+
+			that._pushToRequestQueue(mRequests, sGroupId, null, oRequest, fnSuccess, fnError, requestHandle, false);
+		
 		}
 
 		// In case we are in batch mode and are processing refreshes before sending changes to the server,
 		// the request must be processed synchronously to be contained in the same batch as the changes
+		
 		if (this.bUseBatch && this.bIncludeInCurrentBatch) {
 			oRequest = createReadRequest(oRequestHandle);
-			return oRequestHandle;
+			
 		} else {
-			return this._processRequest(createReadRequest, fnError);
+			this._processRequest(createReadRequest, fnError);
 		}
+
+	});
+	return prom;
 	};
 
 	/**
@@ -5537,6 +5581,7 @@ sap.ui.define([
 	 * @public
 	 */
 	ODataModel.prototype.submitChanges = function(mParameters) {
+		var prom = new Promise((resolve, reject) => {
 		var oRequest, sGroupId, oGroupInfo, fnSuccess, fnError,
 			oRequestHandle, vRequestHandleInternal,
 			bAborted = false, sMethod, mChangedEntities,
@@ -5546,13 +5591,18 @@ sap.ui.define([
 
 		if (mParameters) {
 			sGroupId = mParameters.groupId || mParameters.batchGroupId;
-			fnSuccess =	mParameters.success;
-			fnError = mParameters.error;
+			
 			// ensure merge parameter backwards compatibility
 			if (mParameters.merge !== undefined) {
 				sMethod =  mParameters.merge ? "MERGE" : "PUT";
 			}
-		}
+		fnSuccess = (mParameters.success) ? mParameters.success : (oData) => resolve(oData);
+		fnError = (mParameters.error) ? mParameters.error : (oData) => reject(oData);
+	} 
+else {
+	fnSuccess = (oData) => resolve(oData);
+	fnError = (oError) => reject(oError);
+}
 
 		if (sGroupId && !this.mDeferredGroups[sGroupId]) {
 			Log.fatal(this + " submitChanges: \"" + sGroupId + "\" is not a deferred group!");
@@ -5623,6 +5673,8 @@ sap.ui.define([
 		};
 
 		return oRequestHandle;
+	})
+	return prom
 	};
 
 	/*
